@@ -1,13 +1,12 @@
 {
   "id": "worldClockPlus",
   "name": "World Clock Plus",
-  "description": "Multiple timezones on the bar. Search cities inline, rename, reorder and copy times from the popout.",
-  "version": "1.0.0",
+  "description": "Local date and time on the bar like the default clock; multiple timezones in the popout with inline city search, rename, reorder and copy.",
+  "version": "2.0.0",
   "author": "Ernesto Cruz Olivera",
   "icon": "public",
   "type": "widget",
   "capabilities": ["dankbar-widget"],
   "component": "./WorldClockPlusWidget.qml",
-  "settings": "./WorldClockPlusSettings.qml",
   "permissions": ["settings_read", "settings_write", "process"]
 }

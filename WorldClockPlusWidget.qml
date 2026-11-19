@@ -11,12 +11,8 @@ PluginComponent {
 
     // ── Settings (pluginData is reloaded by DMS on every save) ──────
     readonly property var timezones: Array.isArray(pluginData.timezones) ? pluginData.timezones : []
-    readonly property bool showAll: pluginData.showAll !== false
-    readonly property int cycleInterval: pluginData.cycleInterval || 15
-    readonly property bool use24h: pluginData.use24h !== false
 
     // ── Runtime state ───────────────────────────────────────────────
-    property int currentIndex: 0
     property var timeMap: ({})          // tz -> {h, m, off, wd}
     property var localInfo: ({ h: 0, m: 0, off: 0, wd: "", date: "" })
     property var zoneNames: []          // IANA zones from system zone.tab
@@ -24,11 +20,7 @@ PluginComponent {
 
     readonly property var weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-    onTimezonesChanged: {
-        if (currentIndex >= timezones.length)
-            currentIndex = 0;
-        refreshTimes();
-    }
+    onTimezonesChanged: refreshTimes()
 
     Component.onCompleted: refreshTimes()
 
@@ -138,25 +130,27 @@ PluginComponent {
             zoneNames = names.concat(["Etc/UTC"]);
     }
 
-    // ── Cycling ─────────────────────────────────────────────────────
-    Timer {
-        interval: root.cycleInterval * 1000
-        running: !root.showAll && root.timezones.length > 1
-        repeat: true
-        onTriggered: root.currentIndex = (root.currentIndex + 1) % root.timezones.length
-    }
-
     // ── Formatting helpers ──────────────────────────────────────────
     function pad(n) {
         return n < 10 ? "0" + n : "" + n;
     }
 
+    // Hour string following DMS clock settings (24h / padded 12h).
+    function hourText(h) {
+        if (SettingsData.use24HourClock)
+            return pad(h);
+        var d = (h % 12) || 12;
+        return SettingsData.padHours12Hour ? pad(d) : "" + d;
+    }
+
+    function ampm(h) {
+        return SettingsData.use24HourClock ? "" : (h < 12 ? " AM" : " PM");
+    }
+
     function formatHM(info) {
         if (!info)
             return "…";
-        if (use24h)
-            return pad(info.h) + ":" + pad(info.m);
-        return ((info.h % 12) || 12) + ":" + pad(info.m) + " " + (info.h < 12 ? "AM" : "PM");
+        return hourText(info.h) + ":" + pad(info.m) + ampm(info.h);
     }
 
     function labelFor(entry) {
@@ -186,86 +180,121 @@ PluginComponent {
         Quickshell.execDetached(["wl-copy", label + " " + formatHM(info) + " (" + info.wd + ")"]);
     }
 
-    readonly property var visibleModel: {
-        if (timezones.length === 0)
-            return [];
-        if (showAll)
-            return timezones;
-        return [timezones[Math.min(currentIndex, timezones.length - 1)]];
+    // ── Bar: local date & time, mirrors the DMS default clock ───────
+    SystemClock {
+        id: barClock
+        precision: SettingsData.showSeconds ? SystemClock.Seconds : SystemClock.Minutes
     }
 
-    // ── Bar pills ───────────────────────────────────────────────────
+    readonly property real barFontSize: Theme.barTextSize(barThickness, barConfig?.fontScale, barConfig?.maximizeWidgetText)
+    readonly property real digitWidth: Math.round(barFontSize * 0.6)
+    readonly property int barH: barClock.date.getHours()
+    readonly property string barMinutes: pad(barClock.date.getMinutes())
+    readonly property string barSeconds: pad(barClock.date.getSeconds())
+    readonly property string barDate: barClock.date.toLocaleDateString(I18n.locale(), SettingsData.getEffectiveDateFormat())
+    readonly property bool dayFirst: {
+        var f = I18n.locale().dateFormat(Locale.ShortFormat);
+        return f.indexOf("d") < f.indexOf("M");
+    }
+    readonly property string barDay: pad(barClock.date.getDate())
+    readonly property string barMonth: pad(barClock.date.getMonth() + 1)
+
+    // Fixed-width digits so the pill doesn't jitter as time changes.
+    component Digits: Row {
+        property string value
+        property color textColor: Theme.widgetTextColor
+        spacing: 0
+
+        Repeater {
+            model: value.split("")
+
+            StyledText {
+                text: modelData
+                font.pixelSize: root.barFontSize
+                color: textColor
+                width: root.digitWidth
+                horizontalAlignment: Text.AlignHCenter
+            }
+        }
+    }
+
+    component Sep: StyledText {
+        font.pixelSize: root.barFontSize
+        color: Theme.widgetTextColor
+        width: Math.ceil(implicitWidth)
+        horizontalAlignment: Text.AlignHCenter
+    }
+
     horizontalBarPill: Component {
         Row {
             spacing: Theme.spacingS
 
-            Repeater {
-                model: root.visibleModel
-
-                Row {
-                    spacing: Theme.spacingS
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    StyledText {
-                        text: "·"
-                        font.pixelSize: Theme.fontSizeMedium
-                        color: Theme.withAlpha(Theme.surfaceText, 0.4)
-                        visible: index > 0
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    StyledText {
-                        text: root.labelFor(modelData) + " " + root.formatHM(root.timeMap[modelData.timezone])
-                        font.pixelSize: Theme.fontSizeMedium
-                        color: Theme.surfaceText
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                }
+            StyledText {
+                text: root.barDate
+                font.pixelSize: root.barFontSize
+                color: Theme.widgetTextColor
+                anchors.verticalCenter: parent.verticalCenter
             }
 
             StyledText {
-                text: "World Clock"
-                font.pixelSize: Theme.fontSizeMedium
-                color: Theme.surfaceVariantText
+                text: "•"
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.outlineButton
                 anchors.verticalCenter: parent.verticalCenter
-                visible: root.timezones.length === 0
+            }
+
+            Row {
+                anchors.verticalCenter: parent.verticalCenter
+
+                Digits { value: root.hourText(root.barH) }
+                Sep { text: ":" }
+                Digits { value: root.barMinutes }
+                Sep { text: ":"; visible: SettingsData.showSeconds }
+                Digits { value: root.barSeconds; visible: SettingsData.showSeconds }
+                Sep { text: root.ampm(root.barH); visible: !SettingsData.use24HourClock }
             }
         }
     }
 
     verticalBarPill: Component {
         Column {
-            spacing: Theme.spacingXS
+            spacing: 0
 
-            Repeater {
-                model: root.visibleModel
+            Digits {
+                anchors.horizontalCenter: parent.horizontalCenter
+                value: SettingsData.use24HourClock ? root.pad(root.barH) : root.pad((root.barH % 12) || 12)
+            }
+            Digits {
+                anchors.horizontalCenter: parent.horizontalCenter
+                value: root.barMinutes
+            }
+            Digits {
+                anchors.horizontalCenter: parent.horizontalCenter
+                value: root.barSeconds
+                visible: SettingsData.showSeconds
+            }
 
-                Column {
-                    spacing: 1
-                    anchors.horizontalCenter: parent.horizontalCenter
+            Item {
+                width: parent.width
+                height: Theme.spacingM
 
-                    StyledText {
-                        text: root.labelFor(modelData)
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
-                        anchors.horizontalCenter: parent.horizontalCenter
-                    }
-
-                    StyledText {
-                        text: root.formatHM(root.timeMap[modelData.timezone])
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceText
-                        anchors.horizontalCenter: parent.horizontalCenter
-                    }
+                Rectangle {
+                    width: parent.width * 0.6
+                    height: 1
+                    color: Theme.outlineButton
+                    anchors.centerIn: parent
                 }
             }
 
-            DankIcon {
-                name: "public"
-                size: Theme.iconSize - 4
-                color: Theme.surfaceVariantText
+            Digits {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: root.timezones.length === 0
+                value: root.dayFirst ? root.barDay : root.barMonth
+                textColor: Theme.primary
+            }
+            Digits {
+                anchors.horizontalCenter: parent.horizontalCenter
+                value: root.dayFirst ? root.barMonth : root.barDay
+                textColor: Theme.primary
             }
         }
     }
@@ -493,7 +522,7 @@ PluginComponent {
                             width: clockCol.width
                             height: 60
                             radius: Theme.cornerRadius
-                            color: (!root.showAll && root.currentIndex === index) ? Theme.withAlpha(Theme.primary, 0.15) : Theme.surfaceContainerHigh
+                            color: Theme.surfaceContainerHigh
 
                             // Row click (background) = copy
                             MouseArea {
