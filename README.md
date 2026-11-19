@@ -5,13 +5,13 @@ A [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) bar widg
 ## Features
 
 - **Inline search**: type a city, country, IANA zone or abbreviation (`Barcelona`, `japan`, `Europe/Berlin`, `PT`, `CET`) and press Enter. Works offline with ~460 bundled cities plus every zone in `/usr/share/zoneinfo/zone.tab`.
-- **Editable labels**: click a clock's label to rename it. Enter saves, Esc cancels, empty restores the default name.
-- **Reorder / remove**: ↑/↓ buttons set the order, × removes.
-- **Click to copy**: click a row to copy e.g. `Tokyo 14:30 (Thu)` to the clipboard.
+- **Editable labels**: in edit mode, click a clock's label to rename it. Enter saves, Esc cancels, empty restores the default name.
+- **Edit mode**: the ✎ icon on the local row reveals search (add), rename, ↑/↓ reorder and × remove. Hidden otherwise.
+- **Click to copy**: outside edit mode, click a row to copy e.g. `Tokyo 14:30 (Thu)` to the clipboard.
 - **At a glance**: day/night icon, offset relative to local time (`+9h`, `−3h`, `+5:30h`) and a local-time reference row.
 - **Bar**: local date and time, e.g. `Thu 19 • 14:30`, styled like the default DMS clock. Follows DMS clock settings (date format, 24-hour, hour padding, seconds). No limit on clock count in the popout.
 
-Keyboard in the popout: type to search, ↑/↓ to select a result, Enter to add, Esc to clear (Esc again closes).
+Keyboard in edit mode: type to search, ↑/↓ to select a result, Enter to add. Esc clears search, then exits edit mode, then closes.
 
 ## Requirements
 

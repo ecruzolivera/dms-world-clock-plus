@@ -311,6 +311,7 @@ PluginComponent {
             property var results: []
             property int selected: 0
             property int editingIndex: -1
+            property bool editMode: false
             property int copiedIndex: -99   // -1 = local row
 
             function runSearch() {
@@ -323,8 +324,47 @@ PluginComponent {
                 if (i < 0 || i >= results.length)
                     return;
                 root.addClock(results[i]);
+                clearSearch();
+            }
+
+            function clearSearch() {
                 searchField.text = "";
                 results = [];
+            }
+
+            // Search field in edit mode; otherwise the popout itself, so Esc
+            // propagates to the popout's close handler. Taking focus from an
+            // open rename field commits it (focusStateChanged is synchronous).
+            function focusHome() {
+                if (editMode)
+                    searchField.forceActiveFocus();
+                else
+                    pop.forceActiveFocus();
+            }
+
+            // Commit an open rename before anything that changes rows or mode,
+            // so it applies to the right clock (rename uses the row index).
+            function commitRename() {
+                if (editingIndex >= 0)
+                    searchField.forceActiveFocus();
+            }
+
+            function startRename(i) {
+                commitRename();
+                editingIndex = i;
+            }
+
+            function setEditMode(on) {
+                commitRename();
+                editMode = on;
+                editingIndex = -1;
+                clearSearch();
+                if (on) {
+                    focusTimer.restart();
+                } else {
+                    focusTimer.stop();
+                    pop.forceActiveFocus();
+                }
             }
 
             function markCopied(i) {
@@ -338,17 +378,15 @@ PluginComponent {
                 onTriggered: pop.copiedIndex = -99
             }
 
-            // Focus the search field whenever the popout opens.
+            // On open: refresh, and start in edit mode only when there are no clocks.
             Connections {
                 target: pop.parentPopout
                 function onShouldBeVisibleChanged() {
                     if (pop.parentPopout.shouldBeVisible) {
                         root.refreshTimes();
-                        focusTimer.restart();
+                        pop.setEditMode(root.timezones.length === 0);
                     } else {
-                        pop.editingIndex = -1;
-                        searchField.text = "";
-                        pop.results = [];
+                        pop.setEditMode(false);
                     }
                 }
             }
@@ -359,7 +397,7 @@ PluginComponent {
                 onTriggered: searchField.forceActiveFocus()
             }
 
-            Component.onCompleted: focusTimer.restart()
+            Component.onCompleted: setEditMode(root.timezones.length === 0)
 
             // ── Local reference row ──
             Item {
@@ -388,7 +426,7 @@ PluginComponent {
                 }
 
                 DankIcon {
-                    anchors.right: parent.right
+                    anchors.right: editToggle.left
                     anchors.rightMargin: Theme.spacingS
                     anchors.verticalCenter: parent.verticalCenter
                     name: root.isDay(root.localInfo) ? "light_mode" : "dark_mode"
@@ -398,11 +436,21 @@ PluginComponent {
 
                 MouseArea {
                     anchors.fill: parent
+                    enabled: !pop.editMode
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         root.copyText("Local", root.localInfo);
                         pop.markCopied(-1);
                     }
+                }
+
+                DankActionButton {
+                    id: editToggle
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconName: pop.editMode ? "check" : "edit"
+                    iconColor: pop.editMode ? Theme.primary : Theme.surfaceVariantText
+                    onClicked: pop.setEditMode(!pop.editMode)
                 }
             }
 
@@ -422,8 +470,10 @@ PluginComponent {
                         pop.pick(pop.selected);
                         event.accepted = true;
                     } else if (event.key === Qt.Key_Escape && searchField.text.length > 0) {
-                        searchField.text = "";
-                        pop.results = [];
+                        pop.clearSearch();
+                        event.accepted = true;
+                    } else if (event.key === Qt.Key_Escape && pop.editMode) {
+                        pop.setEditMode(false);
                         event.accepted = true;
                     }
                 }
@@ -432,6 +482,7 @@ PluginComponent {
             DankTextField {
                 id: searchField
                 width: parent.width
+                visible: pop.editMode
                 leftIconName: "search"
                 placeholderText: "Add city, timezone or abbreviation…"
                 showClearButton: true
@@ -442,7 +493,7 @@ PluginComponent {
             Column {
                 width: parent.width
                 spacing: 2
-                visible: searchField.text.length > 0
+                visible: pop.editMode && searchField.text.length > 0
 
                 Repeater {
                     model: pop.results
@@ -527,6 +578,7 @@ PluginComponent {
                             // Row click (background) = copy
                             MouseArea {
                                 anchors.fill: parent
+                                enabled: !pop.editMode
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     root.copyText(root.labelFor(modelData), row.info);
@@ -568,8 +620,9 @@ PluginComponent {
 
                                         MouseArea {
                                             anchors.fill: parent
+                                            enabled: pop.editMode
                                             cursorShape: Qt.IBeamCursor
-                                            onClicked: pop.editingIndex = index
+                                            onClicked: pop.startRename(index)
                                         }
                                     }
 
@@ -588,9 +641,11 @@ PluginComponent {
                                                         if (event.key === Qt.Key_Escape) {
                                                             editField.cancelled = true;
                                                             pop.editingIndex = -1;
+                                                            pop.focusHome();
                                                             event.accepted = true;
                                                         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                                                             editField.commit();
+                                                            pop.focusHome();
                                                             event.accepted = true;
                                                         }
                                                     }
@@ -643,8 +698,8 @@ PluginComponent {
 
                             StyledText {
                                 id: timeText
-                                anchors.right: buttons.left
-                                anchors.rightMargin: Theme.spacingS
+                                anchors.right: buttons.visible ? buttons.left : parent.right
+                                anchors.rightMargin: buttons.visible ? Theme.spacingS : Theme.spacingM
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: root.formatHM(row.info)
                                 font.pixelSize: Theme.fontSizeXLarge
@@ -654,6 +709,7 @@ PluginComponent {
 
                             Row {
                                 id: buttons
+                                visible: pop.editMode
                                 anchors.right: parent.right
                                 anchors.rightMargin: Theme.spacingXS
                                 anchors.verticalCenter: parent.verticalCenter
@@ -665,7 +721,7 @@ PluginComponent {
                                     iconName: "keyboard_arrow_up"
                                     opacity: index > 0 ? 1 : 0.3
                                     enabled: index > 0
-                                    onClicked: root.moveClock(index, -1)
+                                    onClicked: { var i = index; pop.commitRename(); root.moveClock(i, -1); }
                                 }
                                 DankActionButton {
                                     buttonSize: 26
@@ -673,14 +729,14 @@ PluginComponent {
                                     iconName: "keyboard_arrow_down"
                                     opacity: index < root.timezones.length - 1 ? 1 : 0.3
                                     enabled: index < root.timezones.length - 1
-                                    onClicked: root.moveClock(index, 1)
+                                    onClicked: { var i = index; pop.commitRename(); root.moveClock(i, 1); }
                                 }
                                 DankActionButton {
                                     buttonSize: 26
                                     iconSize: 16
                                     iconName: "close"
                                     iconColor: Theme.error
-                                    onClicked: root.removeClock(index)
+                                    onClicked: { var i = index; pop.commitRename(); root.removeClock(i); }
                                 }
                             }
                         }
@@ -691,7 +747,7 @@ PluginComponent {
             StyledText {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
-                text: "No clocks yet. Search above to add one."
+                text: pop.editMode ? "No clocks yet. Search above to add one." : "No clocks yet. Click ✎ to add one."
                 font.pixelSize: Theme.fontSizeMedium
                 color: Theme.surfaceVariantText
                 visible: root.timezones.length === 0 && searchField.text.length === 0
